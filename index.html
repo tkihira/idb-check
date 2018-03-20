@@ -1,0 +1,104 @@
+<html><title>IndexedDB test for huge wasm</title>
+<script>
+//const filename = "hello_world.wasm";
+const filename = "100000-functions.wasm";
+
+const log = (() => {
+    let time = performance.now();
+    return (message) => {
+        const now = performance.now();
+        console.log((now - time).toFixed(4) + ": " + message);
+        try {
+            document.getElementById("textarea").value += (now - time).toFixed(4) + ": " + message + "\n";
+        } catch(e) {
+        }
+        time = performance.now();
+    };
+})();
+
+let db;
+onload = () => {
+    log("onload");
+    const openRequest = indexedDB.open("testdb", 1.0);
+    openRequest.onupgradeneeded = (e) => {
+        log("onupgradeneeded called");
+        db = e.target.result;
+        const store = db.createObjectStore("teststore", {keyPath: "testkey"});
+        store.createIndex("testindex", "testvalue");
+    };
+    openRequest.onsuccess = (e) => {
+        log("onsuccess called");
+        db = e.target.result;
+        setTimeout(getModule, 0);
+    };
+};
+
+const getModule = () => {
+    //const key = "wasm";
+    const key = filename;
+    log("getModule called, key = [" + key + "]");
+
+    const transaction = db.transaction(["teststore"], "readwrite");
+    const store = transaction.objectStore("teststore");
+    const request = store.get(key);
+
+    request.onsuccess = (e) => {
+        const result = e.target.result;
+        if(result == null) {
+            log("key not found: " + key);
+            loadModule();
+        } else {
+            log("key found:" + key);
+            console.log("result value:", result.testvalue);
+            execModule(result.testvalue);
+        }
+    };
+};
+
+const loadModule = () => {
+    log("loadModule called, filename = [" + filename + "]");
+    fetch(filename).then((response) => {
+        log("fetch end");
+        return response.arrayBuffer()
+    }).then((bytes) => {
+        log("arraybuffer end, compile start");
+        return WebAssembly.compile(bytes);
+    }).then((module) => {
+        log("compile end");
+        execModule(module);
+        saveModule(module);
+    });
+};
+
+const execModule = (module) => {
+    log("execModule called, instantiate start");
+    // Create the instance.
+    WebAssembly.instantiate(module, {}).then((instance) => {
+        log("instantiate end");
+        log("===============");
+        // TODO: call something
+    });
+};
+
+const saveModule = (module) => {
+    log("saveModule called, key = [" + filename + "]");
+    const key = filename;
+    const value = module;
+    
+    const transaction = db.transaction(["teststore"], "readwrite");
+    const store = transaction.objectStore("teststore");
+    
+    try {
+        const request = store.put({testkey: key, testvalue: value});
+        request.onsuccess = (e) => {
+            log("successfully stored");
+            console.log("successfully stored:", key, value);
+        };
+    } catch(e) {
+        log("store failed, see console for more details");
+        throw e;
+    }
+};
+</script><body>
+<textarea id="textarea" cols="80" rows="10"></textarea>
+</body></html>
